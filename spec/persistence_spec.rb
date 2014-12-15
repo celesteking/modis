@@ -292,7 +292,7 @@ describe Modis::Persistence do
     end
   end
 
-  describe 'YAML backward compatability' do
+  describe 'serialization backward compatability' do
     it 'loads a YAML serialized value' do
       Modis.with_connection do |redis|
         model.save!
@@ -303,6 +303,48 @@ describe Modis::Persistence do
         record = redis.hgetall(key)
 
         expect(record["name"]).to eq("--- Ian\n...\n")
+
+        model.reload
+        expect(model.name).to eq('Ian')
+
+        model.name = 'Kyle'
+        model.save!
+        record = redis.hgetall(key)
+        expect(record["name"]).to eq("\xA4Kyle")
+      end
+    end
+
+    it 'loads a Marshal serialized value' do
+      Modis.with_connection do |redis|
+        model.save!
+        key = model.class.key_for(model.id)
+        record = redis.hgetall(key)
+        record['name'] = Marshal.dump('Ian')
+        redis.hmset(key, *record.to_a)
+        record = redis.hgetall(key)
+
+        expect(record["name"]).to eq("\x04\bI\"\bIan\x06:\x06ET")
+
+        model.reload
+        expect(model.name).to eq('Ian')
+
+        model.name = 'Kyle'
+        model.save!
+        record = redis.hgetall(key)
+        expect(record["name"]).to eq("\xA4Kyle")
+      end
+    end
+
+    it 'loads a non-serialized value' do
+      Modis.with_connection do |redis|
+        model.save!
+        key = model.class.key_for(model.id)
+        record = redis.hgetall(key)
+        record['name'] = 'Ian'
+        redis.hmset(key, *record.to_a)
+        record = redis.hgetall(key)
+
+        expect(record["name"]).to eq("Ian")
 
         model.reload
         expect(model.name).to eq('Ian')

@@ -62,14 +62,27 @@ module Modis
         model
       end
 
-      YAML_MARKER = '---'.freeze
+      MARSHAL_MARKER = "\x04\b".freeze
+      YAML_MARKER = "---".freeze
       def coerce_from_persistence(attribute, value)
-        # Modis < 1.4.0 used YAML for serialization.
-        return YAML.load(value) if value.start_with?(YAML_MARKER)
 
-        value = MessagePack.unpack(value)
-        value = Time.new(*value) if value && attributes[attribute.to_s][:type] == :timestamp
-        value
+        if(value.start_with?(MARSHAL_MARKER))
+          # Our fork of modis used to use Marshal serialization
+          return Marshal.load(value)
+        elsif(value.start_with?(YAML_MARKER))
+          # Modis < 1.4.0 used YAML for serialization.
+          return YAML.load(value)
+        else
+          begin
+            value = MessagePack.unpack(value)
+            value = Time.new(*value) if value && attributes[attribute.to_s][:type] == :timestamp
+            return value
+          rescue
+            return value # Probably just a non-serialized string (the original serialization format)
+          end
+        end
+
+
       end
     end
 
