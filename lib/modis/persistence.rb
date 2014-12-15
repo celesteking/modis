@@ -169,10 +169,13 @@ module Modis
       self.class.transaction do |redis|
         run_callbacks :save do
           run_callbacks callback do
-            run_callbacks "_internal_#{callback}" do
+            #run_callbacks "_internal_#{callback}" do
               attrs = coerced_attributes
-              future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
-            end
+              redis.pipelined do
+                future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
+                redis.sadd(self.class.key_for(:all), id)
+              end
+            #end
           end
         end
       end
@@ -205,7 +208,7 @@ module Modis
     end
 
     def track
-      Modis.with_connection { |redis| redis.sadd(self.class.key_for(:all), id) }
+      Modis.with_connection { |redis|   redis.sadd(self.class.key_for(:all), id)}
     end
 
     def untrack
