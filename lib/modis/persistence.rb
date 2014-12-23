@@ -129,7 +129,7 @@ module Modis
       self.class.transaction do |redis|
         run_callbacks :destroy do
           redis.pipelined do
-            remove_from_indexes(redis)
+           # remove_from_indexes(redis)
             redis.srem(self.class.key_for(:all), id)
             redis.del(key)
           end
@@ -169,13 +169,13 @@ module Modis
       validate(args)
       future = persist(args[:yaml_sucks])
 
-      if future && (future == :unchanged || future.value == 'OK')
+      #if future && (future == :unchanged || future.value == 'OK')
         reset_changes
         @new_record = false
         true
-      else
-        false
-      end
+      #else
+      #  false
+      #end
     end
 
     def validate(args)
