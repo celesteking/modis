@@ -68,7 +68,7 @@ module Modis
         keys = record.keys
         values.each_with_index { |v, i| record[keys[i]] = v }
         record
-      rescue MessagePack::MalformedFormatError
+      rescue MessagePack::MalformedFormatError,EOFError
         found_yaml = false
 
         record.each do |k, v|
