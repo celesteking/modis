@@ -93,15 +93,20 @@ describe Modis::Persistence do
     expect(model.name_changed?).to be false
   end
 
+  it 'does not identify an attribute as changed if the value is the default' do
+    expect(model.class.attributes_with_defaults).to eq('name' => 'Ian')
+    expect(model.name).to eq('Ian')
+    expect(model.name_changed?).to be false
+  end
+
   it 'is persisted' do
     expect(model.persisted?).to be true
   end
 
   it 'does not track the ID if the underlying Redis command failed' do
-    redis = double(hmset: double(value: nil),sadd: double(value: nil))
-    expect(redis).to receive(:pipelined).and_yield
+    redis = double(hmset: double(value: nil), sadd: nil)
     expect(model.class).to receive(:transaction).and_yield(redis)
-
+    expect(redis).to receive(:pipelined).and_yield
     model.save
     expect { model.class.find(model.id) }.to raise_error(Modis::RecordNotFound)
   end
@@ -123,11 +128,9 @@ describe Modis::Persistence do
       model.save!
       model.age = 11
       redis = double
-
       expect(redis).to receive(:hmset).with("modis:persistence_spec:mock_model:1", ["age", "\v"]).and_return(double(value: 'OK'))
-      expect(redis).to receive(:pipelined).and_yield
-      expect(redis).to receive(:sadd).with("modis:persistence_spec:mock_model:all",1).and_return(double(value: 'OK'))
       expect(model.class).to receive(:transaction).and_yield(redis)
+      expect(redis).to receive(:pipelined).and_yield
       model.save!
       expect(model.age).to eq(11)
     end
@@ -292,68 +295,47 @@ describe Modis::Persistence do
     end
   end
 
-  describe 'serialization backward compatability' do
+  describe 'YAML backward compatability' do
     it 'loads a YAML serialized value' do
       Modis.with_connection do |redis|
         model.save!
         key = model.class.key_for(model.id)
         record = redis.hgetall(key)
-        record['name'] = YAML.dump('Ian')
+        record['age'] = YAML.dump(30)
         redis.hmset(key, *record.to_a)
         record = redis.hgetall(key)
 
-        expect(record["name"]).to eq("--- Ian\n...\n")
+        expect(record['age']).to eq("--- 30\n...\n")
 
         model.reload
-        expect(model.name).to eq('Ian')
+        expect(model.age).to eq(30)
 
-        model.name = 'Kyle'
-        model.save!
+        model.save!(yaml_sucks: true)
         record = redis.hgetall(key)
-        expect(record["name"]).to eq("\xA4Kyle")
-      end
-    end
-
-    it 'loads a Marshal serialized value' do
-      Modis.with_connection do |redis|
-        model.save!
-        key = model.class.key_for(model.id)
-        record = redis.hgetall(key)
-        record['name'] = Marshal.dump('Ian')
-        redis.hmset(key, *record.to_a)
-        record = redis.hgetall(key)
-
-        expect(record["name"]).to eq("\x04\bI\"\bIan\x06:\x06ET")
-
-        model.reload
-        expect(model.name).to eq('Ian')
-
-        model.name = 'Kyle'
-        model.save!
-        record = redis.hgetall(key)
-        expect(record["name"]).to eq("\xA4Kyle")
-      end
-    end
-
-    it 'loads a non-serialized value' do
-      Modis.with_connection do |redis|
-        model.save!
-        key = model.class.key_for(model.id)
-        record = redis.hgetall(key)
-        record['name'] = 'Ian'
-        redis.hmset(key, *record.to_a)
-        record = redis.hgetall(key)
-
-        expect(record["name"]).to eq("Ian")
-
-        model.reload
-        expect(model.name).to eq('Ian')
-
-        model.name = 'Kyle'
-        model.save!
-        record = redis.hgetall(key)
-        expect(record["name"]).to eq("\xA4Kyle")
+        expect(record['age']).to eq("\x1E")
       end
     end
   end
+
+  it 'loads a Marshal serialized value' do
+    Modis.with_connection do |redis|
+      model.save!
+      key = model.class.key_for(model.id)
+      record = redis.hgetall(key)
+      record['name'] = Marshal.dump('Ian')
+      redis.hmset(key, *record.to_a)
+      record = redis.hgetall(key)
+
+      expect(record["name"]).to eq("\x04\bI\"\bIan\x06:\x06ET")
+
+      model.reload
+      expect(model.name).to eq('Ian')
+
+      model.name = 'Kyle'
+      model.save!
+      record = redis.hgetall(key)
+      expect(record["name"]).to eq("\xA4Kyle")
+    end
+  end
 end
+

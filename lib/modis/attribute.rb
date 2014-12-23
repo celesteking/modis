@@ -1,13 +1,12 @@
 module Modis
   module Attribute
-    TYPES = { String => :string,
-              Fixnum => :integer,
-              Float => :float,
-              Time => :timestamp,
-              Hash => :hash,
-              Array => :array,
-              TrueClass => :boolean,
-              FalseClass => :boolean }.freeze
+    TYPES = { string: [String],
+              integer: [Fixnum],
+              float: [Float],
+              timestamp: [Time],
+              hash: [Hash],
+              array: [Array],
+              boolean: [TrueClass, FalseClass] }.freeze
 
     def self.included(base)
       base.extend ClassMethods
@@ -17,46 +16,64 @@ module Modis
     end
 
     module ClassMethods
-      def bootstrap_attributes
+      def bootstrap_attributes(parent = nil)
         attr_reader :attributes
 
         class << self
-          attr_accessor :attributes
+          attr_accessor :attributes, :attributes_with_defaults
         end
 
-        self.attributes = {}
+        self.attributes = parent ? parent.attributes.dup : {}
+        self.attributes_with_defaults = parent ? parent.attributes_with_defaults.dup : {}
 
-        attribute :id, :integer
+        attribute :id, :integer unless parent
       end
 
       def attribute(name, type, options = {})
         name = name.to_s
         raise AttributeError, "Attribute with name '#{name}' has already been specified." if attributes.key?(name)
-        Array(type).each { |t| raise UnsupportedAttributeType, t unless TYPES.values.include?(t) }
-        attributes[name] = options.update(type: type)
-        define_attribute_methods [name]
 
-        class_eval <<-EOS, __FILE__, __LINE__
+        type_classes = Array(type).map do |t|
+          raise UnsupportedAttributeType, t unless TYPES.key?(t)
+          TYPES[t]
+        end.flatten
+
+        attributes[name] = options.update(type: type)
+        attributes_with_defaults[name] = options[:default] if options[:default]
+        define_attribute_methods([name])
+
+        value_coercion = type == :timestamp ? 'value = Time.new(*value) if value && value.is_a?(Array) && value.count == 7' : nil
+        predicate = type_classes.map { |cls| "value.is_a?(#{cls.name})" }.join(' || ')
+
+        type_check = <<-RUBY
+        if value && !(#{predicate})
+          raise Modis::AttributeCoercionError, "Received value of type '\#{value.class}', expected '#{type_classes.join("', '")}' for attribute '#{name}'."
+        end
+        RUBY
+
+        class_eval <<-RUBY, __FILE__, __LINE__
           def #{name}
             attributes['#{name}']
           end
 
           def #{name}=(value)
-            if value != attributes['#{name}']
-              ensure_type('#{name}', value)
-              #{name}_will_change!
-            end
+            #{value_coercion}
 
-            attributes['#{name}'] = value
+            # ActiveSupport's Time#<=> does not perform well when comparing with NilClass.
+            if (value.nil? ^ attributes['#{name}'].nil?) || (value != attributes['#{name}'])
+              #{type_check}
+              #{name}_will_change!
+              attributes['#{name}'] = value
+            end
           end
-        EOS
+        RUBY
       end
     end
 
     def assign_attributes(hash)
       hash.each do |k, v|
         setter = "#{k}="
-        send(setter, v) if respond_to?(setter)
+        send(setter, v) if self.class.attributes.key?(k.to_s)
       end
     end
 
@@ -80,9 +97,7 @@ module Modis
     end
 
     def apply_defaults
-      self.class.attributes.each do |attribute, options|
-        write_attribute(attribute, options[:default]) if options[:default]
-      end
+      @attributes = Hash[self.class.attributes_with_defaults]
     end
   end
 end

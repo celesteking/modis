@@ -3,8 +3,10 @@ module Modis
     def self.included(base)
       base.extend ClassMethods
       base.instance_eval do
-        after__internal_create :track
-        before__internal_destroy :untrack
+        class << self
+          attr_reader :sti_child
+          alias_method :sti_child?, :sti_child
+        end
       end
     end
 
@@ -19,31 +21,26 @@ module Modis
             attribute :type, :string unless attributes.key?('type')
           end
 
-          class << self
-            delegate :attributes, :indexed_attributes, to: :sti_parent
-          end
-
           @sti_child = true
           @sti_parent = parent
-        end
-      end
 
-      # :nodoc:
-      def sti_child? # rubocop:disable Style/TrivialAccessors
-        @sti_child
+          bootstrap_attributes(parent)
+          bootstrap_indexes(parent)
+        end
       end
 
       def namespace
         return sti_parent.namespace if sti_child?
-        return @namespace if @namespace
-        @namespace = name.split('::').map(&:underscore).join(':')
+        @namespace ||= name.split('::').map(&:underscore).join(':')
       end
 
-      attr_writer :namespace
+      def namespace=(value)
+        @namespace = value
+        @absolute_namespace = nil
+      end
 
       def absolute_namespace
-        parts = [Modis.config.namespace, namespace]
-        @absolute_namespace = parts.compact.join(':')
+        @absolute_namespace ||= [Modis.config.namespace, namespace].compact.join(':')
       end
 
       def key_for(id)
@@ -62,27 +59,47 @@ module Modis
         model
       end
 
-      MARSHAL_MARKER = "\x04\b".freeze
-      YAML_MARKER = "---".freeze
-      def coerce_from_persistence(attribute, value)
 
-        if(value.start_with?(MARSHAL_MARKER))
-          # Our fork of modis used to use Marshal serialization
-          return Marshal.load(value)
-        elsif(value.start_with?(YAML_MARKER))
-          # Modis < 1.4.0 used YAML for serialization.
-          return YAML.load(value)
-        else
-          begin
-            value = MessagePack.unpack(value)
-            value = Time.new(*value) if value && attributes[attribute.to_s][:type] == :timestamp
-            return value
-          rescue
-            return value # Probably just a non-serialized string (the original serialization format)
+      YAML_MARKER = '---'.freeze
+      MARSHAL_MARKER = "\x04".freeze # Double quotes are required here
+      def deserialize(record)
+        values = record.values
+        values = MessagePack.unpack(msgpack_array_header(values.size) + values.join)
+        keys = record.keys
+        values.each_with_index { |v, i| record[keys[i]] = v }
+        record
+      rescue MessagePack::MalformedFormatError
+        found_yaml = false
+
+        record.each do |k, v|
+          if v.start_with?(YAML_MARKER)
+            found_yaml = true
+            record[k] = YAML.load(v)
+          elsif(v.start_with?(MARSHAL_MARKER))
+            record[k] = Marshal.load(v)
+          else
+            record[k] = MessagePack.unpack(v)
           end
         end
 
+        if found_yaml
+          id = record['id']
+          STDERR.puts "#{self}(id: #{id}) contains attributes serialized as YAML. As of Modis 1.4.0, YAML is no longer used as the serialization format. To improve performance loading this record, you can force the record to new serialization format (MessagePack) with: #{self}.find(#{id}).save!(yaml_sucks: true)"
+        end
 
+        record
+      end
+
+      private
+
+      def msgpack_array_header(n)
+        if n < 16
+          [0x90 | n].pack("C")
+        elsif n < 65536
+          [0xDC, n].pack("Cn")
+        else
+          [0xDD, n].pack("CN")
+        end.force_encoding(Encoding::UTF_8)
       end
     end
 
@@ -111,7 +128,9 @@ module Modis
     def destroy
       self.class.transaction do |redis|
         run_callbacks :destroy do
-          run_callbacks :_internal_destroy do
+          redis.pipelined do
+            remove_from_indexes(redis)
+            redis.srem(self.class.key_for(:all), id)
             redis.del(key)
           end
         end
@@ -146,22 +165,13 @@ module Modis
       MessagePack.pack(value)
     end
 
-    def ensure_type(attribute, value)
-      return unless value
-      expected_type = self.class.attributes[attribute.to_s][:type]
-      received_type = Modis::Attribute::TYPES[value.class]
-      return if expected_type.is_a?(Array) ? expected_type.include?(received_type) : expected_type == received_type
-      raise Modis::AttributeCoercionError, "Received value of type #{received_type.inspect}, expected #{Array(expected_type).map(&:inspect).join(', ')} for attribute '#{attribute}'."
-    end
-
     def create_or_update(args = {})
       validate(args)
-      future = persist
+      future = persist(args[:yaml_sucks])
 
       if future && (future == :unchanged || future.value == 'OK')
         reset_changes
         @new_record = false
-        new_record? ? add_to_index : update_index
         true
       else
         false
@@ -174,7 +184,7 @@ module Modis
       raise Modis::RecordInvalid, errors.full_messages.join(', ')
     end
 
-    def persist
+    def persist(persist_all)
       future = nil
       set_id if new_record?
       callback = new_record? ? :create : :update
@@ -182,13 +192,17 @@ module Modis
       self.class.transaction do |redis|
         run_callbacks :save do
           run_callbacks callback do
-            #run_callbacks "_internal_#{callback}" do
-              attrs = coerced_attributes
-              redis.pipelined do
-                future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
+            redis.pipelined do
+              attrs = coerced_attributes(persist_all)
+              future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
+
+              if new_record?
                 redis.sadd(self.class.key_for(:all), id)
+                #add_to_indexes(redis)
+              else
+                #update_indexes(redis)
               end
-            #end
+            end
           end
         end
       end
@@ -196,10 +210,10 @@ module Modis
       future
     end
 
-    def coerced_attributes # rubocop:disable Metrics/AbcSize
+    def coerced_attributes(persist_all) # rubocop:disable Metrics/AbcSize
       attrs = []
 
-      if new_record?
+      if new_record? || persist_all
         attributes.each do |k, v|
           if (self.class.attributes[k][:default] || nil) != v
             attrs << k << coerce_for_persistence(v)
@@ -218,14 +232,6 @@ module Modis
       Modis.with_connection do |redis|
         self.id = redis.incr("#{self.class.absolute_namespace}_id_seq")
       end
-    end
-
-    def track
-      Modis.with_connection { |redis|   redis.sadd(self.class.key_for(:all), id)}
-    end
-
-    def untrack
-      Modis.with_connection { |redis| redis.srem(self.class.key_for(:all), id) }
     end
   end
 end

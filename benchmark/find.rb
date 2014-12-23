@@ -1,5 +1,10 @@
-$LOAD_PATH.unshift('.')
-require 'benchmark/bench'
+$LOAD_PATH.unshift('benchmark')
+require 'bench'
+
+require 'redis/connection/fakedis'
+# Redis::Connection::Fakedis.start_recording
+Redis::Connection::Fakedis.start_replay(:find)
+Modis.redis_options = { driver: :fakedis }
 
 class User
   include Modis::Model
@@ -39,6 +44,7 @@ Bench.run do |b|
   end
 end
 
+n = 1_000
 i = 20
 STDOUT.write "\n* Creating #{i} users for :where_multiple... "
 STDOUT.flush
@@ -52,3 +58,5 @@ Bench.run do |b|
     end
   end
 end
+
+# Redis::Connection::Fakedis.stop_recording(:find)
