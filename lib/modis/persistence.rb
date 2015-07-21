@@ -192,17 +192,16 @@ module Modis
       self.class.transaction do |redis|
         run_callbacks :save do
           run_callbacks callback do
-            redis.pipelined do
-              attrs = coerced_attributes(persist_all)
-              future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
-
-              if new_record?
+            attrs = coerced_attributes(persist_all)
+            if(new_record?) # if new record then we'll pipeline
+              redis.pipelined do
+                future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
                 redis.sadd(self.class.key_for(:all), id)
-                #add_to_indexes(redis)
-              else
-                #update_indexes(redis)
               end
+            else # no need to pipeline
+              future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
             end
+
           end
         end
       end

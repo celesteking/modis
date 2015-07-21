@@ -130,10 +130,10 @@ describe Modis::Persistence do
       redis = double
       expect(redis).to receive(:hmset).with("modis:persistence_spec:mock_model:1", ["age", "\v"]).and_return(double(value: 'OK'))
       expect(model.class).to receive(:transaction).and_yield(redis)
-      expect(redis).to receive(:pipelined).and_yield
       model.save!
       expect(model.age).to eq(11)
     end
+
   end
 
   describe 'reload' do
