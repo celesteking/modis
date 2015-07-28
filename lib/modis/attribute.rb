@@ -33,10 +33,10 @@ module Modis
         name = name.to_s
         raise AttributeError, "Attribute with name '#{name}' has already been specified." if attributes.key?(name)
 
-        type_classes = Array(type).map do |t|
+        type_classes = Array(type).flat_map do |t|
           raise UnsupportedAttributeType, t unless TYPES.key?(t)
           TYPES[t]
-        end.flatten
+        end
 
         attributes[name] = options.update(type: type)
         attributes_with_defaults[name] = options[:default] if options[:default]
@@ -60,20 +60,28 @@ module Modis
             #{value_coercion}
 
             # ActiveSupport's Time#<=> does not perform well when comparing with NilClass.
-            if (value.nil? ^ attributes['#{name}'].nil?) || (value != attributes['#{name}'])
+            current = attributes['#{name}']
+            if (value.nil? ^ current.nil?) || (value != current)
               #{type_check}
-              #{name}_will_change!
+              mark_attribute_change('#{name}')
               attributes['#{name}'] = value
             end
           end
+
         RUBY
       end
     end
 
+    def mark_attribute_change(attr)
+      @changed_attributes ||= {}
+      @changed_attributes[attr] = true
+    end
+
+
+
     def assign_attributes(hash)
       hash.each do |k, v|
-        setter = "#{k}="
-        send(setter, v) if self.class.attributes.key?(k.to_s)
+        send("#{k}=",v) if self.class.attributes.key?(k.to_s)
       end
     end
 

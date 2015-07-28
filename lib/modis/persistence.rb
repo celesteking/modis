@@ -66,9 +66,16 @@ module Modis
         values = record.values
         values = MessagePack.unpack(msgpack_array_header(values.size) + values.join)
         keys = record.keys
-        values.each_with_index { |v, i| record[keys[i]] = v }
+
+        index = 0
+        while index < values.size # Optimized: https://github.com/rails/rails/pull/12065
+          record[keys[index]] = values[index]
+          index+=1
+        end
         record
+
       rescue MessagePack::MalformedFormatError,EOFError
+
         found_yaml = false
 
         record.each do |k, v|
@@ -90,16 +97,18 @@ module Modis
         record
       end
 
+
       private
 
+      HEADERS = ["\x90","\x91","\x92","\x93","\x94","\x95","\x96","\x97","\x98","\x99","\x9A","\x9B","\x9C","\x9D","\x9E","\x9F"]
       def msgpack_array_header(n)
         if n < 16
-          [0x90 | n].pack("C")
+          HEADERS[n] # optimization // #[0x90 | n].pack("C").force_encoding(Encoding::UTF_8)
         elsif n < 65536
-          [0xDC, n].pack("Cn")
+          [0xDC, n].pack("Cn").force_encoding(Encoding::UTF_8)
         else
-          [0xDD, n].pack("CN")
-        end.force_encoding(Encoding::UTF_8)
+          [0xDD, n].pack("CN").force_encoding(Encoding::UTF_8)
+        end
       end
     end
 
