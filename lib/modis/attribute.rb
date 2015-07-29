@@ -53,18 +53,18 @@ module Modis
 
         class_eval <<-RUBY, __FILE__, __LINE__
           def #{name}
-            attributes['#{name}']
+            attributes['#{name}'.freeze]
           end
 
           def #{name}=(value)
             #{value_coercion}
 
             # ActiveSupport's Time#<=> does not perform well when comparing with NilClass.
-            current = attributes['#{name}']
+            current = attributes['#{name}'.freeze]
             if (value.nil? ^ current.nil?) || (value != current)
               #{type_check}
-              mark_attribute_change('#{name}')
-              attributes['#{name}'] = value
+              mark_attribute_change('#{name}'.freeze)
+              attributes['#{name}'.freeze] = value
             end
           end
 

@@ -1,4 +1,5 @@
 require 'spec_helper'
+require 'benchmark'
 
 module FindersSpec
   class User
@@ -33,7 +34,14 @@ describe Modis::Finder do
     model1 = FindersSpec::User.create!(name: 'Ian', age: 28)
     model2 = FindersSpec::User.create!(name: 'Tanya', age: 32)
     model3 = FindersSpec::User.create!(name: 'Kyle', age: 35)
-    models = FindersSpec::User.find(model1.id, model2.id, model3.id)
+
+    models = nil
+    puts Benchmark.measure {
+      10000.times {
+        models = FindersSpec::User.find(model1.id, model2.id, model3.id)
+      }
+    }
+    puts models.to_yaml
     expect(models).to eq([model1, model2, model3])
   end
 
