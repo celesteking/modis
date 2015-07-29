@@ -43,10 +43,10 @@ module Modis
 
         models = records_to_models(records)
 
-        if models.count < ids.count
-          missing = ids - models.map(&:id)
-          raise RecordNotFound, "Couldn't find #{name} with id=#{missing.first}"
-        end
+        #if models.count < ids.count
+        #  missing = ids - models.map(&:id)
+        #  raise RecordNotFound, "Couldn't find #{name} with id=#{missing.first}"
+        #end
 
         models
       end
