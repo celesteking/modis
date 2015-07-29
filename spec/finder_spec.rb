@@ -36,12 +36,7 @@ describe Modis::Finder do
     model3 = FindersSpec::User.create!(name: 'Kyle', age: 35)
 
     models = nil
-    puts Benchmark.measure {
-      10000.times {
-        models = FindersSpec::User.find(model1.id, model2.id, model3.id)
-      }
-    }
-    puts models.to_yaml
+    models = FindersSpec::User.find(model1.id, model2.id, model3.id)
     expect(models).to eq([model1, model2, model3])
   end
 

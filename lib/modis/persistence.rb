@@ -176,7 +176,7 @@ module Modis
 
     def create_or_update(args = {})
       validate(args)
-      future = persist(args[:yaml_sucks])
+      future = persist(args[:yaml_sucks],args[:skip_index])
 
       #if future && (future == :unchanged || future.value == 'OK')
         reset_changes
@@ -193,24 +193,24 @@ module Modis
       raise Modis::RecordInvalid, errors.full_messages.join(', ')
     end
 
-    def persist(persist_all)
+    def persist(persist_all,skip_index=false)
       future = nil
       set_id if new_record?
       callback = new_record? ? :create : :update
 
-      self.class.transaction do |redis|
-        run_callbacks :save do
-          run_callbacks callback do
-            attrs = coerced_attributes(persist_all)
-            if(new_record?) # if new record then we'll pipeline
-              redis.pipelined do
-                future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
-                redis.sadd(self.class.key_for(:all), id)
-              end
-            else # no need to pipeline
+
+      run_callbacks :save do
+        run_callbacks callback do
+          attrs = coerced_attributes(persist_all)
+          if(new_record? && !skip_index) # if new record and we need to index it
+            self.class.transaction do |redis|
+              future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
+              redis.sadd(self.class.key_for(:all), id)
+            end
+          else # no need to pipeline
+            Modis.with_connection do |redis|
               future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
             end
-
           end
         end
       end
