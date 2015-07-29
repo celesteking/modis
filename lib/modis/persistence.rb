@@ -207,7 +207,7 @@ module Modis
               future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
               redis.sadd(self.class.key_for(:all), id)
             end
-          else # no need to pipeline
+          else
             Modis.with_connection do |redis|
               future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
             end
