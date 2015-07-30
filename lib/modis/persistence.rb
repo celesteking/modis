@@ -204,12 +204,12 @@ module Modis
           attrs = coerced_attributes(persist_all)
           if(new_record? && !skip_index) # if new record and we need to index it
             self.class.transaction do |redis|
-              future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
+              future = attrs.empty? ? :unchanged : redis.hmset(self.class.key_for(id), attrs)
               redis.sadd(self.class.key_for(:all), id)
             end
           else
             Modis.with_connection do |redis|
-              future = attrs.any? ? redis.hmset(self.class.key_for(id), attrs) : :unchanged
+              future = attrs.empty? ? :unchanged : redis.hmset(self.class.key_for(id), attrs)
             end
           end
         end
@@ -238,6 +238,7 @@ module Modis
 
     def set_id
       Modis.with_connection do |redis|
+
         self.id = redis.incr("#{self.class.absolute_namespace}_id_seq")
       end
     end
