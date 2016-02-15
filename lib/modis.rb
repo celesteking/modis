@@ -3,7 +3,6 @@ require 'connection_pool'
 require 'active_model'
 require 'active_support/all'
 require 'yaml'
-require 'msgpack'
 
 require 'modis/version'
 require 'modis/configuration'

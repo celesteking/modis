@@ -59,12 +59,8 @@ module Modis
         model
       end
 
-
-      YAML_MARKER = '---'.freeze
-      MARSHAL_MARKER = "\x04".freeze # Double quotes are required here
       def deserialize(record)
         values = record.values
-        values = MessagePack.unpack(msgpack_array_header(values.size) + values.join)
         keys = record.keys
 
         index = 0
@@ -73,42 +69,6 @@ module Modis
           index+=1
         end
         record
-
-      rescue MessagePack::MalformedFormatError,EOFError
-
-        found_yaml = false
-
-        record.each do |k, v|
-          if v.start_with?(YAML_MARKER)
-            found_yaml = true
-            record[k] = YAML.load(v)
-          elsif(v.start_with?(MARSHAL_MARKER))
-            record[k] = Marshal.load(v)
-          else
-            record[k] = MessagePack.unpack(v)
-          end
-        end
-
-        if found_yaml
-          id = record['id']
-          STDERR.puts "#{self}(id: #{id}) contains attributes serialized as YAML. As of Modis 1.4.0, YAML is no longer used as the serialization format. To improve performance loading this record, you can force the record to new serialization format (MessagePack) with: #{self}.find(#{id}).save!(yaml_sucks: true)"
-        end
-
-        record
-      end
-
-
-      private
-
-      HEADERS = ["\x90","\x91","\x92","\x93","\x94","\x95","\x96","\x97","\x98","\x99","\x9A","\x9B","\x9C","\x9D","\x9E","\x9F"]
-      def msgpack_array_header(n)
-        if n < 16
-          HEADERS[n] # optimization // #[0x90 | n].pack("C").force_encoding(Encoding::UTF_8)
-        elsif n < 65536
-          [0xDC, n].pack("Cn").force_encoding(Encoding::UTF_8)
-        else
-          [0xDD, n].pack("CN").force_encoding(Encoding::UTF_8)
-        end
       end
     end
 
@@ -170,8 +130,20 @@ module Modis
     private
 
     def coerce_for_persistence(value)
-      value = [value.year, value.month, value.day, value.hour, value.min, value.sec, value.strftime("%:z")] if value.is_a?(Time)
-      MessagePack.pack(value)
+      if (value.instance_of?(Time))
+        # Persist as ISO8601 UTC with milliseconds
+        return value.utc.iso8601 3
+      end
+
+      if (value.instance_of?(Hash))
+        return JSON.dump(value)
+      end
+
+      if value.nil?
+        return "nil"
+      end
+
+      value.to_s
     end
 
     def create_or_update(args = {})
@@ -228,11 +200,12 @@ module Modis
           end
         end
       else
-        changed_attributes.each do |k, _|
+        changed_attributes.each do |k, v|
           attrs << k << coerce_for_persistence(attributes[k])
         end
       end
 
+      puts "ATTRS:", *attrs
       attrs
     end
 

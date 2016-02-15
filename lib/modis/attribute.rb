@@ -29,6 +29,49 @@ module Modis
         attribute :id, :integer unless parent
       end
 
+      def self.value_coercion(type, val)
+        if val.nil?
+          return nil
+        end
+
+        case type
+        when :integer
+          return val.to_i
+        when :float
+          return val.to_f
+        when :timestamp
+          return Time.parse(val).localtime
+        when :boolean
+          if val == "true"
+            return true
+          elsif val == "false"
+            return false
+          end
+
+          return val
+        when :hash
+          return JSON.parse val
+        when :string
+          return val
+        when :array
+          return JSON.parse val
+        end
+
+        return nil
+      end
+
+      def self.value_coercion_multi_type(type, val)
+        for i in 0..type.length()
+          begin
+            return value_coercion(type[i], val)
+          rescue Exception
+          end
+        end
+
+        # None of the expected coercions worked
+        return val
+      end
+
       def attribute(name, type, options = {})
         name = name.to_s
         raise AttributeError, "Attribute with name '#{name}' has already been specified." if attributes.key?(name)
@@ -42,8 +85,9 @@ module Modis
         attributes_with_defaults[name] = options[:default] if options[:default]
         define_attribute_methods([name])
 
-        value_coercion = type == :timestamp ? 'value = Time.new(*value) if value && value.is_a?(Array) && value.count == 7' : nil
         predicate = type_classes.map { |cls| "value.is_a?(#{cls.name})" }.join(' || ')
+
+        coercion = type.is_a?(Array) ? "Modis::Attribute::ClassMethods.value_coercion_multi_type #{type}," : "Modis::Attribute::ClassMethods.value_coercion :#{type},"
 
         type_check = <<-RUBY
         if value && !(#{predicate})
@@ -56,8 +100,18 @@ module Modis
             attributes['#{name}'.freeze]
           end
 
-          def #{name}=(value)
-            #{value_coercion}
+          def #{name}=(val)
+            if (val.nil?)
+              value = val
+            elsif ("#{type}" != "string" && val.is_a?(String))
+              value = #{coercion} val
+            else
+              if "#{type}" == "string" and val == "nil"
+                value = nil
+              else
+                value = val
+              end
+            end
 
             # ActiveSupport's Time#<=> does not perform well when comparing with NilClass.
             current = attributes['#{name}'.freeze]
@@ -76,8 +130,6 @@ module Modis
       @changed_attributes ||= {}
       @changed_attributes[attr] = true
     end
-
-
 
     def assign_attributes(hash)
       hash.each do |k, v|
