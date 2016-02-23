@@ -24,8 +24,8 @@ module Modis
   end
 
   self.redis_options = { driver: :hiredis }
-  self.connection_pool_size = 5
-  self.connection_pool_timeout = 5
+  self.connection_pool_size = 20
+  self.connection_pool_timeout = 10
 
   def self.connection_pool
     return @connection_pool if @connection_pool
