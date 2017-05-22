@@ -27,7 +27,7 @@ module Modis
         attribute, value = query.first
         ids = index_for(attribute, value)
         return [] if ids.empty?
-        find_all(ids)
+        find(ids)
       end
 
       def index_for(attribute, value)

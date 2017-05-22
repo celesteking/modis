@@ -1,5 +1,6 @@
 module Modis
   module Persistence
+
     def self.included(base)
       base.extend ClassMethods
       base.instance_eval do
@@ -40,7 +41,7 @@ module Modis
       end
 
       def absolute_namespace
-        @absolute_namespace ||= [Modis.config.namespace, namespace].compact.join(':')
+        @absolute_namespace ||= [Modis::Configuration.config.namespace, namespace].compact.join(':')
       end
 
       def key_for(id)
@@ -70,6 +71,17 @@ module Modis
         end
         record
       end
+
+      def delete_all
+        key_all = key_for(:all)
+        sscan(key_all) do |redis, keys|
+          redis.pipelined do
+            redis.del(keys.map{|key| key_for(key) })
+            redis.srem(key_all, keys)
+          end
+          return true
+        end
+      end
     end
 
     def persisted?
@@ -97,7 +109,7 @@ module Modis
     def destroy
       self.class.transaction do |redis|
         run_callbacks :destroy do
-          redis.pipelined do
+          Modis.pipelined do
            # remove_from_indexes(redis)
             redis.srem(self.class.key_for(:all), id)
             redis.del(key)
@@ -127,23 +139,27 @@ module Modis
       save!
     end
 
+    def increment!(attr)
+      incrby(attr, 1)
+    end
+
+    def decrement!(attr)
+      incrby(attr, -1)
+    end
+
     private
 
     def coerce_for_persistence(value)
-      if (value.instance_of?(Time))
-        # Persist as ISO8601 UTC with milliseconds
-        return value.utc.iso8601 3
+      case value
+        when Time, DateTime
+          return value.utc.to_i
+        when Hash
+          return JSON.dump(value)
+        when NilClass
+          return 'nil'
+        else
+          value.to_s
       end
-
-      if (value.instance_of?(Hash))
-        return JSON.dump(value)
-      end
-
-      if value.nil?
-        return "nil"
-      end
-
-      value.to_s
     end
 
     def create_or_update(args = {})
@@ -205,14 +221,24 @@ module Modis
         end
       end
 
-      puts "ATTRS:", *attrs
+      # puts "ATTRS:", *attrs
       attrs
     end
 
     def set_id
-      Modis.with_connection do |redis|
+      if (k = self.class.primary_attr_name)
+        attributes[k]
+      else
+        Modis.with_connection do |redis|
+          self.id = redis.incr("#{self.class.absolute_namespace}_id_seq")
+        end
+      end
+    end
 
-        self.id = redis.incr("#{self.class.absolute_namespace}_id_seq")
+    def incrby(name, by)
+      raise "#{name} isn't an integer to de/increment" unless self.class.attribute_type?(name, :integer)
+      Modis.with_connection do |redis|
+        redis.hincrby(self.class.key_for(id), name, by)
       end
     end
   end

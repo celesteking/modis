@@ -1,14 +1,14 @@
 module Modis
-  def self.configure
-    yield config
-  end
+  module Configuration
+    mattr_reader :config
 
-  class Configuration < Struct.new(:namespace)
-  end
+    def self.configure
+      yield config
+    end
 
-  class << self
-    attr_reader :config
+    unless @@config
+      @@config = Struct.new(:namespace, :redis_opts).new(nil, {driver: :hiredis})
+      @@config.redis_opts.merge!(Rails.application.config.modis.to_h) if Rails.application.config.modis
+    end
   end
-
-  @config = Configuration.new
 end

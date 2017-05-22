@@ -1,12 +1,15 @@
 module Modis
   module Attribute
-    TYPES = { string: [String],
-              integer: [Fixnum],
-              float: [Float],
-              timestamp: [Time],
-              hash: [Hash],
-              array: [Array],
-              boolean: [TrueClass, FalseClass] }.freeze
+    TYPES = {
+        string:    [String],
+        integer:   [Integer],
+        float:     [Float],
+        timestamp: [Time],
+        datetime:  [Time, DateTime],
+        hash:      [Hash],
+        array:     [Array],
+        boolean:   [TrueClass, FalseClass],
+    }.freeze
 
     def self.included(base)
       base.extend ClassMethods
@@ -21,12 +24,11 @@ module Modis
 
         class << self
           attr_accessor :attributes, :attributes_with_defaults
+          attr_reader :primary_attr_name
         end
 
         self.attributes = parent ? parent.attributes.dup : {}
         self.attributes_with_defaults = parent ? parent.attributes_with_defaults.dup : {}
-
-        attribute :id, :integer unless parent
       end
 
       def self.value_coercion(type, val)
@@ -41,6 +43,8 @@ module Modis
           return val.to_f
         when :timestamp
           return Time.parse(val).localtime
+        when :datetime
+          return Time.at(val.to_i).utc.to_datetime
         when :boolean
           if val == "true"
             return true
@@ -70,6 +74,11 @@ module Modis
 
         # None of the expected coercions worked
         return val
+      end
+
+      def primary(name)
+        @primary_attr_name = name.to_sym
+        attribute @primary_attr_name, :integer
       end
 
       def attribute(name, type, options = {})
@@ -123,6 +132,14 @@ module Modis
           end
 
         RUBY
+      end
+
+      def attribute_type?(name, type)
+        raise UnsupportedAttributeType, type unless TYPES.key?(type)
+        unless (attr = attributes[name.to_s])
+          raise "#{name} isn't defined"
+        end
+        attr[:type] == type
       end
     end
 
