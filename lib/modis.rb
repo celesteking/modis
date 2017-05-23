@@ -2,6 +2,7 @@ require 'redis'
 require 'connection_pool'
 
 if Bundler.settings[:devplace] == 'local'
+  puts 'Modis: dev mode'
   require 'modis/version'
   require_dependency 'modis/configuration'
 else
