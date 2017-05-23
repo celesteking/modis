@@ -94,6 +94,13 @@ module Modis
         end
       end
 
+      # where
+      def wh(&block)
+        self.select do |model|
+          model.instance_exec(&block)
+        end
+      end
+
       def exists?(*ids)
         ids = ids.first if ids.size == 1 and Array === ids.first
 
