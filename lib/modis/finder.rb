@@ -67,8 +67,25 @@ module Modis
             ids.each { |id| record_for(redis, id) }
           end
 
-          yield(red, records_to_models(records), processed)
+          rec_models = records_to_models(records)
+          yield(red, rec_models, processed)
         end
+      end
+
+      def each(&block)
+        enum = Enumerator.new(self.count) do |y|
+          scan do |red, models, processed|
+            models.lazy.each do |model|
+              y << model
+            end
+          end
+        end
+
+        block_given?? enum.each(&block) : enum
+      end
+
+      def select(&block)
+        each.lazy.select(&block)
       end
 
       def count
