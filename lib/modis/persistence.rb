@@ -79,7 +79,7 @@ module Modis
             redis.del(keys.map{|key| key_for(key) })
             redis.srem(key_all, keys)
           end
-          return true
+          true
         end
       end
     end
