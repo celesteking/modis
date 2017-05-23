@@ -25,6 +25,7 @@ module Modis
         raise RecordNotFound, "Couldn't find #{name} without an ID" if ids.empty?
 
         if ids.size == 1 and (Array === ids.first or Range === ids.first)
+          was_encapsulated = true
           ids = ids.first
         end
 
@@ -42,7 +43,7 @@ module Modis
 
         if extra_models
           model_table
-        elsif ids.size == 1
+        elsif ids.size == 1 and not was_encapsulated
           model_table.first.first
         else
           model_table.first
