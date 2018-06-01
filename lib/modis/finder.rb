@@ -12,7 +12,7 @@ module Modis
       # @option [Array<String>] :include Also fetch these models, by primary key
       # @option [String]        :noerror Don't error out on missing records
       # @return [Array<Model>]
-      # @return [Hash{modelself: Array<>, model2: Array<>, ...}] When additional models are requested via :include
+      # @return [Array<{Array<model1>, Array<model2>, ...}> When additional models are requested via :include
       def find(*ids)
         opts = ids.extract_options!
 
@@ -73,6 +73,7 @@ module Modis
         end
       end
 
+      # @return enumerator or yield(model)
       def each(&block)
         enum = Enumerator.new(self.count) do |y|
           scan do |red, models, processed|
@@ -85,6 +86,7 @@ module Modis
         block_given?? enum.each(&block) : enum
       end
 
+      # select with lazy block eval
       def select(&block)
         each.lazy.select(&block)
       end
@@ -95,7 +97,7 @@ module Modis
         end
       end
 
-      # where
+      # where with `self` set to model instance
       def wh(&block)
         self.select do |model|
           model.instance_exec(&block)
